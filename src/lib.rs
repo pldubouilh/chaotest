@@ -10,7 +10,8 @@ use crate::fetcher::fetcher;
 mod fetcher;
 
 pub enum INSTRUCTION {
-    OnceDelayWriteMs(u64),
+    OnceDelayWriteMs(u64),   // 1 slow request, other are normal
+    AlwaysDelayWriteMs(u64), // always slow
 }
 //   - fails halfway once/twice...
 //   - slow
@@ -26,40 +27,49 @@ fn handle_read(mut stream: &TcpStream) -> Result<()> {
     Ok(())
 }
 
-fn handle_write(mut stream: TcpStream, payload: &[u8], delay_ms: u64) -> Result<()> {
+fn send_preamble(payload: &[u8], stream: &mut TcpStream) -> Result<()> {
     let cl = format!("content-length: {}\r\n", payload.len());
-
     let mut response = "HTTP/1.1 200 OK\r\n".to_string();
     response.push_str("content-type: application/octet-stream\r\n");
     response.push_str(&cl);
-    response.push_str("\r\n\r\n");
-
+    response.push_str("\r\n");
     stream.write_all(response.as_bytes())?;
-    if delay_ms > 0 {
-        stream.write_all(&payload[0..2])?;
+    Ok(())
+}
+
+fn send_payload(
+    mut stream: TcpStream,
+    payload: &[u8],
+    delay_ms: u64,
+    should_delay: bool,
+) -> Result<()> {
+    send_preamble(payload, &mut stream)?;
+
+    stream.write_all(&payload[0..2])?;
+    if should_delay {
         sleep(time::Duration::from_millis(delay_ms));
-        stream.write_all(&payload[2..])?;
-    } else {
-        stream.write_all(payload)?;
     }
+    stream.write_all(&payload[2..])?;
+
     Ok(())
 }
 
 fn serve(instruction: INSTRUCTION, listener: TcpListener, payload: &[u8]) -> Result<()> {
-    let (mut count, delay_ms) = match instruction {
-        OnceDelayWriteMs(delay_ms) => (1, delay_ms),
-    };
+    let mut reqs = 0;
 
+    #[allow(clippy::explicit_counter_loop)]
     for stream in listener.incoming() {
         let stream = stream.context("err stream")?;
         handle_read(&stream).context("failed reading")?;
-        handle_write(stream, payload, delay_ms).context("failed write")?;
 
-        count -= 1;
-        if count == 0 {
-            break;
-        }
+        match instruction {
+            OnceDelayWriteMs(delay_ms) => send_payload(stream, payload, delay_ms, reqs == 0)?,
+            AlwaysDelayWriteMs(delay_ms) => send_payload(stream, payload, delay_ms, true)?,
+        };
+
+        reqs += 1;
     }
+
     Ok(())
 }
 
