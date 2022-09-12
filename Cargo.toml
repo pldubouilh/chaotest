@@ -1,0 +1,15 @@
+[package]
+name = "chaotest"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "chaotic testing proxy"
+homepage = "https://crates.io/crates/chaotest"
+documentation = "https://docs.rs/crate/chaotest/latest"
+repository = "https://github.com/pldubouilh/chaotest"
+readme = "README.md"
+
+[dependencies]
+anyhow = "1.0.44"
+ureq = { version = "2.5.0", features = ["json", "charset", "brotli"] }
+url = "2.2.2"
